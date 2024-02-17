@@ -54,4 +54,59 @@ k6 --vus 100 --iterations 5000 run ./load/load-test.js
 |95%| 47.88ms |
 |90%| 35.53ms |
 
+# Iteration 0
 
+В этой итерации займемся немного деплоем. Некрасиво запускать приложение как мы делали до этого, для этого на сервер надо будет поставить dotnet 8, давайте запакуем приложение в docker контейнер. 
+
+```Dockerfile
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+WORKDIR /app
+EXPOSE 5080
+
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+
+# copy csproj and restore as distinct layer
+COPY HelloWorld.csproj .
+RUN dotnet restore HelloWorld.csproj
+
+# copy everything else and build the app
+COPY . .
+RUN dotnet build HelloWorld.csproj --no-restore -c Release -o /app/build
+
+# publish the app
+FROM build AS publish
+RUN dotnet publish HelloWorld.csproj --no-restore -c Release -o /app/publish
+
+# final image without skd and build dependencies
+FROM base AS final
+WORKDIR /app
+COPY --from=publish /app/publish .
+ENTRYPOINT ["dotnet", "HelloWorld.dll"]
+```
+
+Запуск приложения у нас немного изменится, потому что надо вначале собрать контейнер, а потом запустить.
+    
+```shell
+# Build application
+docker build -t real-world-hello-world ./src/HelloWorld
+
+# Run application
+docker run --rm -it -p 5080:5080 -e ASPNETCORE_URLS=http://::5080 real-world-hello-world
+```
+
+Архитектурная диаграмма
+
+![Architecture](./diagrams/output/iteration0.png)
+
+Нагрузим наше приложение
+
+| Metric | Value |
+| --- | --- |
+|RPS| 24617.915489/s |
+|Avg| 18.1ms |
+|Max| 123.4ms |
+|Min| 429.67µs |
+|Med| 15.41ms |
+|95%| 42.17ms  |
+|90%| 25.61ms |

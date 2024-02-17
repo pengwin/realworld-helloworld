@@ -209,3 +209,169 @@ docker compose -f ./iac/docker-compose.yaml up
 |Med| 20.68ms |
 |95%| 35.66ms  |
 |90%| 32.32ms |
+|Data received| 1.8 MB |
+|Data sent| 960 kB |
+
+# Iteration 2
+
+Сейчас нам надо решить проблему экономии траффика, потому что json добавляет много лишних символов, который влетит нам в копеечку в облачном окружении. Давайте переделаем наш HelloJsonWorld в HelloProtoWorld, добавили в него grpc, чтобы мы использовали бинарный протокол.
+
+Proto файл
+
+```proto
+syntax = "proto3";
+import "google/protobuf/empty.proto";
+
+service HelloService {
+  rpc SayHello (google.protobuf.Empty) returns (HelloReply);
+}
+
+message HelloReply {
+  string result = 1;
+}
+```
+
+Код самого сервиса
+
+```csharp
+using Grpc.Core;
+using Microsoft.Extensions.Options;
+
+var builder = WebApplication.CreateBuilder(args);
+// Register the configuration section
+var helloWorldSection = builder.Configuration.GetSection("HelloWorld");
+builder.Services.Configure<HelloWorldOptions>(helloWorldSection);
+// Add HttpClient to connect to HelloWorld service
+builder.Services.AddSingleton<HelloWorldClient>();
+// Add gRPC service
+builder.Services.AddGrpc();
+builder.Logging.ClearProviders(); // disable logging
+var app = builder.Build();
+app.MapGrpcService<GrpcService>();
+app.Run();
+
+class HelloWorldOptions
+{
+    public string BaseUrl { get; set; } = string.Empty;
+}
+
+class HelloWorldClient
+{
+    private readonly HttpClient _client;
+    public HelloWorldClient(IOptions<HelloWorldOptions> options)
+    {
+        var socketHandler = new SocketsHttpHandler
+        {
+            PooledConnectionLifetime = TimeSpan.FromMinutes(15)
+        };
+        _client = new HttpClient(socketHandler)
+        {
+            BaseAddress = new Uri(options.Value.BaseUrl)
+        };
+    }
+    public async Task<string> GetHelloWorld()
+    {
+        var response = await _client.GetAsync("/hello-world");
+        return await response.Content.ReadAsStringAsync();
+    }
+}
+
+class GrpcService : HelloService.HelloServiceBase
+{
+    private readonly HelloWorldClient _client;
+    public GrpcService(HelloWorldClient client)
+    {
+        _client = client;
+    }
+
+    public async override Task<HelloReply> SayHello(
+        Google.Protobuf.WellKnownTypes.Empty _,
+        ServerCallContext context)
+    {
+        return new HelloReply
+        {
+            Result = await _client.GetHelloWorld()
+        };
+    }
+}
+
+Теперь нам надо сгенерировать сертификаты для HTTP/2, чтобы наш gRPC работал. Для этого нам надо сгенерировать сертификаты и добавить их в контейнер.
+Скрипт для генерации сертификата возьмем у [Microsoft](https://learn.microsoft.com/en-us/dotnet/core/additional-tools/self-signed-certificates-guide#with-openssl).
+
+Docker compose файл теперь изменится
+
+```yaml
+version: '3.4'
+
+services:
+  hello-world:
+    build:
+      context: ../src/HelloWorld
+      dockerfile: Dockerfile
+    environment:
+      - ASPNETCORE_URLS=http://+:5080
+  hello-proto-world:
+    build:
+      context: ../src/HelloProtoWorld
+      dockerfile: Dockerfile
+    ports:
+      - "5090:5090"
+    environment:
+      - Kestrel__EndPoints__Https__Url=https://+:5090
+      - Kestrel__EndPoints__Https__Certificate__Path=/tls/hello.pfx
+      - Kestrel__EndPoints__Https__Certificate__Password=1234
+      - HelloWorld__BaseUrl=http://hello-world:5080
+    volumes:
+      - ./tls:/tls
+    depends_on:
+      - hello-world
+```
+Нагрузочный тест тоже придется переписать.
+
+```javascript
+import grpc from 'k6/net/grpc';
+import { check } from 'k6';
+import exec from 'k6/execution';
+export const options = {
+  vus: 500,
+  iterations: 10000,
+  //httpDebug: 'full',
+  insecureSkipTLSVerify: true,
+};
+const client = new grpc.Client();
+client.load(['definitions'], '../../src/HelloProtoWorld/hello.proto');
+
+
+export default function () {
+  // connect once to reuse connection
+  if (exec.vu.iterationInScenario == 0) {
+    client.connect('localhost:5090', {});
+  }
+
+  const response = client.invoke('HelloService/SayHello', {});
+
+  check(response, {
+    'status is OK': (r) => r && r.status === grpc.StatusOK,
+  });
+}
+```
+
+Архитектурная диаграмма
+
+![Architecture](./diagrams/output/iteration2.png)
+
+Нагрузим наше приложение
+
+| Metric | Value |
+| --- | --- |
+|RPS| 9511.721711/s |
+|Avg| 29.04ms |
+|Max| 227.83ms |
+|Min| 4.77ms |
+|Med| 25.79ms |
+|95%| 55.35ms   |
+|90%| 42.37ms |
+|Data received| 2.5 MB |
+|Data sent| 1.3 MB |
+
+Видно, что сэкономить не получилось, даже наоборот, но наверное если бы отправляли массив чисел с плавающей точкой, то разница была бы заметней.

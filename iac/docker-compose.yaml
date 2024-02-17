@@ -7,14 +7,18 @@ services:
       dockerfile: Dockerfile
     environment:
       - ASPNETCORE_URLS=http://+:5080
-  hello-json-world:
+  hello-proto-world:
     build:
-      context: ../src/HelloJsonWorld
+      context: ../src/HelloProtoWorld
       dockerfile: Dockerfile
     ports:
       - "5090:5090"
     environment:
-      - ASPNETCORE_URLS=http://+:5090
+      - Kestrel__EndPoints__Https__Url=https://+:5090
+      - Kestrel__EndPoints__Https__Certificate__Path=/tls/hello.pfx
+      - Kestrel__EndPoints__Https__Certificate__Password=1234
       - HelloWorld__BaseUrl=http://hello-world:5080
+    volumes:
+      - ./tls:/tls
     depends_on:
       - hello-world

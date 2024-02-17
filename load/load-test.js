@@ -1,8 +1,25 @@
-import http from 'k6/http';
+import grpc from 'k6/net/grpc';
+import { check } from 'k6';
+import exec from 'k6/execution';
 export const options = {
   vus: 500,
   iterations: 10000,
+  //httpDebug: 'full',
+  insecureSkipTLSVerify: true,
 };
+const client = new grpc.Client();
+client.load(['definitions'], '../../src/HelloProtoWorld/hello.proto');
+
+
 export default function () {
-  http.get('http://localhost:5090/hello-json-world');
+  // connect once to reuse connection
+  if (exec.vu.iterationInScenario == 0) {
+    client.connect('localhost:5090', {});
+  }
+
+  const response = client.invoke('HelloService/SayHello', {});
+
+  check(response, {
+    'status is OK': (r) => r && r.status === grpc.StatusOK,
+  });
 }

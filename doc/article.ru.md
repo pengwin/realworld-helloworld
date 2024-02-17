@@ -110,3 +110,102 @@ docker run --rm -it -p 5080:5080 -e ASPNETCORE_URLS=http://::5080 real-world-hel
 |Med| 15.41ms |
 |95%| 42.17ms  |
 |90%| 25.61ms |
+
+# Iteration 1
+
+Микросервисов много не бывает, пришло время добавить еще один. Проблема первого микросервиса, что он возвращает строку, а нам нужно например возвращать json. Давайте добавим второй микросервис HelloJsonWorld, который будет запаковывать ответ первого микросервиса в json. Я добавил немного синглтонной магии, потому что наивная реализация уничтожала производительность совсем беспощадно.
+
+```csharp
+using Microsoft.Extensions.Options;
+
+var builder = WebApplication.CreateBuilder(args);
+// Register the configuration section
+var helloWorldSection = builder.Configuration.GetSection("HelloWorld");
+builder.Services.Configure<HelloWorldOptions>(helloWorldSection);
+// Add HttpClient to connect to HelloWorld service
+builder.Services.AddSingleton<HelloWorldClient>();
+builder.Logging.ClearProviders(); // disable logging
+var app = builder.Build();
+app.MapGet("/hello-json-world", async (HelloWorldClient client) => new
+{
+    Result = await client.GetHelloWorld()
+});
+app.Run();
+
+class HelloWorldOptions
+{
+    public string BaseUrl { get; set; } = string.Empty;
+}
+
+class HelloWorldClient
+{
+    private readonly HttpClient _client;
+    public HelloWorldClient(IOptions<HelloWorldOptions> options)
+    {
+        var socketHandler = new SocketsHttpHandler
+        {
+            PooledConnectionLifetime = TimeSpan.FromMinutes(15)
+        };
+        _client = new HttpClient(socketHandler)
+        {
+            BaseAddress = new Uri(options.Value.BaseUrl)
+        };
+    }
+    public async Task<string> GetHelloWorld()
+    {
+        var response = await _client.GetAsync("/hello-world");
+        return await response.Content.ReadAsStringAsync();
+    }
+}
+```
+
+Поскольку у нас теперь два микросервиса, нам надо их оркестрировать, для этого мы будем использовать docker-compose, ответственно по сборке контейнеров отдадим тоже ему.
+
+```yaml
+version: '3.4'
+
+services:
+  hello-world:
+    build:
+      context: ../src/HelloWorld
+      dockerfile: Dockerfile
+    environment:
+      - ASPNETCORE_URLS=http://+:5080
+  hello-json-world:
+    build:
+      context: ../src/HelloJsonWorld
+      dockerfile: Dockerfile
+    ports:
+      - "5090:5090"
+    environment:
+      - ASPNETCORE_URLS=http://+:5090
+      - HelloWorld__BaseUrl=http://hello-world:5080
+    depends_on:
+      - hello-world
+```
+
+Запуск приложения у нас теперь будет таким
+
+```shell
+# Build application
+docker compose -f ./iac/docker-compose.yaml build 
+
+# Run application
+docker compose -f ./iac/docker-compose.yaml up 
+```
+
+Архитектурная диаграмма
+
+![Architecture](./diagrams/output/iteration1.png)
+
+Нагрузим наше приложение
+
+| Metric | Value |
+| --- | --- |
+|RPS| 19692.118609/s |
+|Avg| 22.61ms |
+|Max| 112.71ms |
+|Min| 4.49ms |
+|Med| 20.68ms |
+|95%| 35.66ms  |
+|90%| 32.32ms |

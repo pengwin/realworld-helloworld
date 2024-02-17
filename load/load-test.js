@@ -4,5 +4,5 @@ export const options = {
   iterations: 10000,
 };
 export default function () {
-  http.get('http://localhost:5080/hello-world');
+  http.get('http://localhost:5090/hello-json-world');
 }

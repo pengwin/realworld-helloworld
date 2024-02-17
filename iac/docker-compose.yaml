@@ -1,0 +1,20 @@
+version: '3.4'
+
+services:
+  hello-world:
+    build:
+      context: ../src/HelloWorld
+      dockerfile: Dockerfile
+    environment:
+      - ASPNETCORE_URLS=http://+:5080
+  hello-json-world:
+    build:
+      context: ../src/HelloJsonWorld
+      dockerfile: Dockerfile
+    ports:
+      - "5090:5090"
+    environment:
+      - ASPNETCORE_URLS=http://+:5090
+      - HelloWorld__BaseUrl=http://hello-world:5080
+    depends_on:
+      - hello-world

@@ -1,7 +1,10 @@
-.PHONY: run load diagrams
+.PHONY: build apply load diagrams
 
-run:
-	bash ./iac/run.sh
+build:
+	bash ./iac/build.sh
+
+apply: build
+	bash ./iac/apply.sh
 
 test:
 	bash ./iac/test.sh

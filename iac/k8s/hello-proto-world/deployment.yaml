@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-proto-world-deployment
+  labels:
+    app: hello-proto-world
+spec:
+  replicas: 3 # High availability
+  selector:
+    matchLabels:
+      app: hello-proto-world
+  template:
+    metadata:
+      labels:
+        app: hello-proto-world
+    spec:
+      containers:
+      - name: hello-proto-world
+        image: real-hello-proto-world:0.0.1
+        ports:
+        - containerPort: 5080
+        env:
+        - name: Kestrel__EndPoints__Https__Url
+          value: "https://+:5090"
+        - name: Kestrel__EndPoints__Https__Certificate__Path
+          value: "/tls/hello.pfx"
+        - name: Kestrel__EndPoints__Https__Certificate__Password
+          value: "1234"
+        - name: HelloWorld__BaseUrl
+          value: "http://hello-world-service.hello.svc.cluster.local:80"
+        volumeMounts:
+        - name: tls
+          mountPath: /tls
+          readOnly: true
+      volumes:
+      - name: tls
+        secret:
+          secretName: hello-tls

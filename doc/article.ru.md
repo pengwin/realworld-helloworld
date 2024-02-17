@@ -375,3 +375,257 @@ export default function () {
 |Data sent| 1.3 MB |
 
 Видно, что сэкономить не получилось, даже наоборот, но наверное если бы отправляли массив чисел с плавающей точкой, то разница была бы заметней.
+
+# Iteration 3
+
+Время сделать глубокий вдох, потому что мы будем нырять в Kubernetes и вынырнем мы не скоро. Все что было до этого - это не серьезно, нам нужно high availability, scalability, service discovery, load balancing, rolling updates и прочие базворды.
+
+Для локального запуска я буду использовать [Minikube 1.32.0](https://minikube.sigs.k8s.io/)
+
+```shell
+$ minikube start
+$ kubectl get pods -A
+NAMESPACE     NAME                               READY   STATUS    RESTARTS      AGE
+kube-system   coredns-5dd5756b68-skshs           1/1     Running   0             2m7s
+kube-system   etcd-minikube                      1/1     Running   0             2m22s
+kube-system   kube-apiserver-minikube            1/1     Running   0             2m22s
+kube-system   kube-controller-manager-minikube   1/1     Running   0             2m20s
+kube-system   kube-proxy-p7v5j                   1/1     Running   0             2m7s
+kube-system   kube-scheduler-minikube            1/1     Running   0             2m22s
+kube-system   storage-provisioner                1/1     Running   1 (97s ago)   2m19s
+```
+
+Для начала нам надо собрать и затегать наши контейнеры c помощью docker-compose. 
+
+```yaml
+...
+services:
+  hello-world:
+    image: real-hello-world:0.0.1
+    ...
+  hello-proto-world:
+    image: real-hello-proto-world:0.0.1
+    ...
+```
+
+Билдить контейнеры надо внутри  minikube, чтобы они были доступны внутри кластера.
+
+```shell
+eval $(minikube docker-env)
+docker compose -f ./iac/docker-compose.yaml build
+```
+
+Создадим namespace для наших сервисов
+
+```shell
+kubectl create namespace hello
+```
+
+Теперь надо подготовить deployment.yaml для hello-world сервиса
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-world-deployment
+  labels:
+    app: hello-world
+spec:
+  replicas: 3 # High availability
+  selector:
+    matchLabels:
+      app: hello-world
+  template:
+    metadata:
+      labels:
+        app: hello-world
+    spec:
+      containers:
+      - name: hello-world
+        image: real-hello-world:0.0.1
+        ports:
+        - containerPort: 5080
+        env:
+        - name: ASPNETCORE_URLS
+          value: "http://+:5080"
+```
+
+Также надо подготовить service.yaml для hello-world
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello-world-service
+spec:
+  selector:
+    app: hello-world
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 5080
+```
+
+Теперь надо применить наши файлы
+
+```shell
+# apply deployment
+kubectl apply -f ./iac/k8s/deployment.yaml -n hello
+# apply service
+kubectl apply -f ./iac/k8s/service.yaml -n hello
+```
+
+Для того чтобы запустить hello-proto-world нам надо сначала создать secret для сертификата
+
+```shell
+kubectl create secret generic hello-tls --from-file=hello.pfx=./iac/tls/hello.pfx -n hello
+```
+
+Теперь надо подготовить deployment.yaml для hello-proto-world
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-proto-world-deployment
+  labels:
+    app: hello-proto-world
+spec:
+  replicas: 3 # High availability
+  selector:
+    matchLabels:
+      app: hello-proto-world
+  template:
+    metadata:
+      labels:
+        app: hello-proto-world
+    spec:
+      containers:
+      - name: hello-proto-world
+        image: real-hello-proto-world:0.0.1
+        ports:
+        - containerPort: 5080
+        env:
+        - name: Kestrel__EndPoints__Https__Url
+          value: "https://+:5090"
+        - name: Kestrel__EndPoints__Https__Certificate__Path
+          value: "/tls/hello.pfx"
+        - name: Kestrel__EndPoints__Https__Certificate__Password
+          value: "1234"
+        - name: HelloWorld__BaseUrl
+          value: "http://hello-world-service.hello.svc.cluster.local:80"
+        volumeMounts:
+        - name: tls
+          mountPath: /tls
+          readOnly: true
+      volumes:
+      - name: tls
+        secret:
+          secretName: hello-tls
+```
+
+И service.yaml для hello-proto-world
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello-proto-world-service
+spec:
+  selector:
+    app: hello-proto-world
+  ports:
+    - protocol: TCP
+      port: 443
+      targetPort: 5090
+```
+
+Применим наши файлы
+
+```shell
+# hello-world
+
+# apply deployment
+kubectl apply -f ./iac/k8s/hello-world/deployment.yaml -n hello
+# apply service
+kubectl apply -f ./iac/k8s/hello-world/service.yaml -n hello
+
+# hello-proto-world
+
+# apply deployment
+kubectl apply -f ./iac/k8s/hello-proto-world/deployment.yaml -n hello
+# apply service
+kubectl apply -f ./iac/k8s/hello-proto-world/service.yaml -n hello
+```
+
+Все должно работать
+
+```shell
+$ kubectl get pods -n hello
+NAME                                           READY   STATUS    RESTARTS   AGE
+hello-proto-world-deployment-cd5f68868-2tvxd   1/1     Running   0          32s
+hello-proto-world-deployment-cd5f68868-4qf6d   1/1     Running   0          32s
+hello-proto-world-deployment-cd5f68868-8ddns   1/1     Running   0          32s
+hello-world-deployment-7fdf4c4d47-5l6pf        1/1     Running   0          10m
+hello-world-deployment-7fdf4c4d47-q2nvz        1/1     Running   0          10m
+hello-world-deployment-7fdf4c4d47-qp9vq        1/1     Running   0          10m
+```
+
+Чтобы протестировать сервисы нужно получить доступ к hello-proto-world сервису извне, для этого создадим ingress.yaml
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hello-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPCS"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: hello
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: hello-proto-world-service
+            port:
+              number: 443
+  tls:
+  - secretName: hello-ingress-tls
+    hosts:
+      - hello
+```
+
+Нужно включить ingress addon в minikube и создать секрет для tls, потом применить ingress.yaml
+
+```shell
+minikube addons enable ingress
+kubectl create secret tls hello-ingress-tls --key=./iac/tls/hello.key --cert=./iac/tls/hello.crt -n hello
+# ingress
+kubectl apply -f ./iac/k8s/ingress.yaml -n hello
+```
+
+Получилась следующая архитектурная диаграмма
+
+![Architecture](./diagrams/output/iteration3.png)
+
+Чтобы протестировать сервис нужно добавить запись в hosts файл
+
+```shell
+echo "$(minikube ip) hello" | sudo tee -a /etc/hosts
+```
+
+| Metric | Value |
+| --- | --- |
+|RPS| 9518.067672/s |
+|Avg| 29.88ms |
+|Max| 288.3ms |
+|Min| 7.17ms |
+|Med| 25.62ms |
+|95%| 56.57ms   |
+|90%| 44.77ms |
+

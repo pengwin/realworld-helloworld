@@ -2,12 +2,14 @@ version: '3.4'
 
 services:
   hello-world:
+    image: real-hello-world:0.0.1
     build:
       context: ../src/HelloWorld
       dockerfile: Dockerfile
     environment:
       - ASPNETCORE_URLS=http://+:5080
   hello-proto-world:
+    image: real-hello-proto-world:0.0.1
     build:
       context: ../src/HelloProtoWorld
       dockerfile: Dockerfile

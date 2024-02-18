@@ -6,6 +6,7 @@ from diagrams.onprem.container import Docker
 from diagrams.k8s.network import Ingress
 from diagrams.k8s.network import Service
 from diagrams.k8s.compute import Pod
+from diagrams.onprem.tracing import Jaeger
 
 with Diagram("Iteration-1", show=False, outformat="png", filename="/output/iteration-1"):
     user = Mobile("User")
@@ -86,6 +87,52 @@ with Diagram("Iteration3-1", show=False, outformat="png", filename="/output/iter
     proto_pod_3 = Pod("HelloProtoWorld3 Pod")
     proto_app_3 = Csharp("HelloProtoWorld3")
     proto_container_3 = Docker("HelloProtoWorld3 Container")
+
+    hello_pod_1 >> hello_container_1 >> hello_app_1
+    hello_pod_2 >> hello_container_2 >> hello_app_2
+    hello_pod_3 >> hello_container_3 >> hello_app_3
+
+    hello_service >> [hello_pod_1, hello_pod_2, hello_pod_3]
+
+    proto_pod_1 >> proto_container_1 >> proto_app_1 >> hello_service
+    proto_pod_2 >> proto_container_2 >> proto_app_2 >> hello_service
+    proto_pod_3 >> proto_container_3 >> proto_app_3 >> hello_service
+
+    proto_service >> [proto_pod_1, proto_pod_2, proto_pod_3]
+
+    user >> Edge(label = "grpc") >> ingress >> proto_service
+
+with Diagram("Iteration4", show=False, outformat="png", filename="/output/iteration4", graph_attr=graph_attr):
+    user = Mobile("User")
+
+    ingress = Ingress("Ingress")
+
+    jaeger = Jaeger("Jaeger")
+
+    hello_service = Service("HelloWorld Service")
+    hello_pod_1 = Pod("HelloWorld Pod1")
+    hello_app_1 = Csharp("HelloWorld1")
+    hello_container_1 = Docker("HelloWorld1 Container")
+    hello_pod_2 = Pod("HelloWorld Pod2")
+    hello_app_2 = Csharp("HelloWorld2")
+    hello_container_2 = Docker("HelloWorld2 Container")
+    hello_pod_3 = Pod("HelloWorld Pod3")
+    hello_app_3 = Csharp("HelloWorld3")
+    hello_container_3 = Docker("HelloWorld3 Container")
+
+    proto_service = Service("HelloProtoWorld Service")
+    proto_pod_1 = Pod("HelloProtoWorld1 Pod")
+    proto_app_1 = Csharp("HelloProtoWorld1")
+    proto_container_1 = Docker("HelloProtoWorld1 Container")
+    proto_pod_2 = Pod("HelloProtoWorld2 Pod")
+    proto_app_2 = Csharp("HelloProtoWorld2")
+    proto_container_2 = Docker("HelloProtoWorld2 Container")
+    proto_pod_3 = Pod("HelloProtoWorld3 Pod")
+    proto_app_3 = Csharp("HelloProtoWorld3")
+    proto_container_3 = Docker("HelloProtoWorld3 Container")
+
+    [hello_pod_1, hello_pod_2, hello_pod_3] >> jaeger
+    [proto_pod_1, proto_pod_2, proto_pod_3] >> jaeger
 
     hello_pod_1 >> hello_container_1 >> hello_app_1
     hello_pod_2 >> hello_container_2 >> hello_app_2

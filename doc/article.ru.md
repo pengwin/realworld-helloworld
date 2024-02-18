@@ -650,7 +650,7 @@ minikube dashboard
 
 Давайте добавим структурное логирование, трейсинг и хелсчеки. Для этого нам надо добавить в наши сервисы следующие строки.
 
-Для структурного логгирования я буду использовать [Serilog](https://serilog.net/)  и [Serilog.Sinks.RawConsole](https://github.com/epeshk/serilog-sinks-rawconsole), [Serilog.Formatting.Compact.Utf8](https://www.nuget.org/packages/Serilog.Formatting.Compact.Utf8/) и  [Serilog.Sinks.Background](https://www.nuget.org/packages/Serilog.Sinks.Background/)
+Для структурного логгирования я буду использовать [Serilog](https://serilog.net/)  и [Serilog.Sinks.RawConsole](https://github.com/epeshk/serilog-sinks-rawconsole), [Serilog.Formatting.Compact.Utf8](https://www.nuget.org/packages/Serilog.Formatting.Compact.Utf8/) и  [Serilog.Sinks.Background](https://www.nuget.org/packages/Serilog.Sinks.Background/) by [epeshk](https://t.me/epeshkblog)
 
 ```csharp
 ...
@@ -831,6 +831,10 @@ helm install jaeger jaegertracing/jaeger --values ./iac/k8s/jaeger/jaeger-values
 |Med| 63.15ms |
 |95%| 129.43ms   |
 |90%| 110.62ms |
+
+Для смеха можно добавить Jaeger в нашу архитектурную диаграмму
+
+![Architecture](./diagrams/output/iteration4.png)
 
 
 

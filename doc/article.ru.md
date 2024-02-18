@@ -613,6 +613,11 @@ kubectl apply -f ./iac/k8s/ingress.yaml -n hello
 
 ![Architecture](./diagrams/output/iteration3.png)
 
+Но на самом деле с учетом трех реплик для каждого сервиса, она выглядит так
+
+![Architecture](./diagrams/output/iteration3-1.png)
+
+
 Чтобы протестировать сервис нужно добавить запись в hosts файл
 
 ```shell
@@ -628,4 +633,204 @@ echo "$(minikube ip) hello" | sudo tee -a /etc/hosts
 |Med| 25.62ms |
 |95%| 56.57ms   |
 |90%| 44.77ms |
+
+# Iteration 4
+
+На самом деле  сильно не хватает мониторинга, если открыть minikube dashboard.
+
+```
+minikube addons enable metrics-server
+minikube dashboard
+```
+
+Мы не увидим ни  логов, ни хелсчеков.
+
+![No logs](./pics/pods-logs-before.png)
+![No conditions](./pics/pods-conditions-before.png)
+
+Давайте добавим структурное логирование, трейсинг и хелсчеки. Для этого нам надо добавить в наши сервисы следующие строки.
+
+Для структурного логгирования я буду использовать [Serilog](https://serilog.net/)  и [Serilog.Sinks.RawConsole](https://github.com/epeshk/serilog-sinks-rawconsole), [Serilog.Formatting.Compact.Utf8](https://www.nuget.org/packages/Serilog.Formatting.Compact.Utf8/) и  [Serilog.Sinks.Background](https://www.nuget.org/packages/Serilog.Sinks.Background/)
+
+```csharp
+...
+using Serilog;
+using Serilog.Events;
+using Serilog.Formatting.Compact.Utf8;
+
+Log.Logger = new LoggerConfiguration()
+      .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
+      .WriteTo.Background(a => a.RawConsole(new CompactUtf8JsonFormatter()))
+      .CreateLogger();
+
+try 
+{
+  ...
+  builder.Host.UseSerilog(); // Use Serilog
+  ...
+  var app = builder.Build();
+  app.UseSerilogRequestLogging(); // Use Serilog Request Logging
+  ...
+  app.Run();
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "Application terminated unexpectedly");
+}
+finally 
+{
+    await Log.CloseAndFlushAsync();
+}
+```
+
+Добавим healthchecks 
+
+```csharp
+...
+builder.Host.UseSerilog(); // Use Serilog
+builder.Services.AddHealthChecks();
+...
+var app = builder.Build();
+app.UseHealthChecks("/health");
+...
+```
+
+Для hello-proto-world добавим probe для hello world
+
+```csharp
+
+builder.Services.AddHealthChecks()
+    .AddCheck<HelloWorldHealthCheck>("hello-world");
+...
+class HelloWorldHealthCheck : IHealthCheck
+{
+    private readonly IOptions<HelloWorldOptions> _options;
+    public HelloWorldHealthCheck(IOptions<HelloWorldOptions> options)
+    {
+        _options = options;
+    }
+
+    public async Task<HealthCheckResult> CheckHealthAsync(
+        HealthCheckContext context, 
+        CancellationToken cancellationToken = default)
+    {
+        try 
+        {
+            var client = new HelloWorldClient(_options);
+            var response = await client.GetHelloWorld();
+            if (response == "Hello World!")
+            {
+                return HealthCheckResult.Healthy("A healthy result.");
+            }
+            return HealthCheckResult.Unhealthy("An unhealthy result.");
+        }
+        catch (Exception ex)
+        {
+            return new HealthCheckResult(
+                context.Registration.FailureStatus, 
+                "An unhealthy result.", 
+                ex);
+        }
+    }
+}
+```
+
+Включим хелсчеки в нашем deployment.yaml
+
+```yaml
+...
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 5080
+  initialDelaySeconds: 10
+  periodSeconds: 15
+  failureThreshold: 5
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 5080
+  initialDelaySeconds: 3
+  periodSeconds: 15
+  failureThreshold: 5
+...
+```
+
+Измерим как логирование и хелсчеки повлияли на производительность
+
+| Metric | Value |
+| --- | --- |
+|RPS| 6086.363055/s |
+|Avg| 56.63ms |
+|Max| 794.49ms |
+|Min| 6.69ms |
+|Med| 47.94ms |
+|95%| 99.64ms   |
+|90%| 83.81ms |
+
+Добавим трейсинг, для этого я буду использовать [OpenTelemetry](https://opentelemetry.io/)
+
+```csharp
+...
+builder.Services.AddOpenTelemetry()
+        .WithMetrics(builder =>
+        {
+            builder.AddPrometheusExporter();
+
+            builder.AddMeter("Microsoft.AspNetCore.Hosting",
+                            "Microsoft.AspNetCore.Server.Kestrel");
+            builder.AddView("http.server.request.duration",
+                new ExplicitBucketHistogramConfiguration
+                {
+                    Boundaries = new double[] { 0, 0.005, 0.01, 0.025, 0.05,
+                        0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10 }
+                });
+        })
+        .WithTracing(b => b
+            .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService("hello-world"))
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation() // only for hello-proto-world
+            .AddOtlpExporter()
+        );
+...
+```
+
+Добавим в наш deployment.yaml переменные окружения для hello-proto-world
+
+```yaml
+...
+  - name: OTEL_EXPORTER_OTLP_ENDPOINT
+    value: "http://jaeger-collector.observability.svc.cluster.local:4317"
+  - name: OTEL_EXPORTER_OTLP_PROTOCOL
+    value: "grpc"
+  - name: OTEL_DOTNET_EXPERIMENTAL_ASPNETCORE_ENABLE_GRPC_INSTRUMENTATION # only for hello-proto-world
+    value: "true"
+...
+```
+
+Осталось только запустить jaeger внутри minikube
+
+```shell
+kubectl create namespace observability
+helm repo add jaegertracing https://jaegertracing.github.io/helm-charts
+helm install jaeger jaegertracing/jaeger --values ./iac/k8s/jaeger/jaeger-values.yaml -n observability
+```
+
+И мы сможем увидеть трейсы в jaeger
+
+![Jaeger](./pics/jaeger.png)
+
+Измерим производительность после добавления трейсинга
+
+| Metric | Value |
+| --- | --- |
+|RPS| 4910.652244/s |
+|Avg| 72.24ms |
+|Max| 637.73ms |
+|Min| 4.12ms |
+|Med| 63.15ms |
+|95%| 129.43ms   |
+|90%| 110.62ms |
+
+
 

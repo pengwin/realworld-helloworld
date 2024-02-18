@@ -16,9 +16,27 @@ spec:
     spec:
       containers:
       - name: hello-world
-        image: real-hello-world:0.0.1
+        image: real-hello-world:0.0.3
         ports:
         - containerPort: 5080
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5080
+          initialDelaySeconds: 10
+          periodSeconds: 15
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5080
+          initialDelaySeconds: 3
+          periodSeconds: 15
+          failureThreshold: 5
         env:
         - name: ASPNETCORE_URLS
           value: "http://+:5080"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://jaeger-collector.observability.svc.cluster.local:4317"
+        - name: OTEL_EXPORTER_OTLP_PROTOCOL
+          value: "grpc"

@@ -2,25 +2,37 @@ version: '3.4'
 
 services:
   hello-world:
-    image: real-hello-world:0.0.1
+    image: real-hello-world:0.0.3
     build:
       context: ../src/HelloWorld
       dockerfile: Dockerfile
     environment:
       - ASPNETCORE_URLS=http://+:5080
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
   hello-proto-world:
-    image: real-hello-proto-world:0.0.1
+    image: real-hello-proto-world:0.0.3
     build:
       context: ../src/HelloProtoWorld
       dockerfile: Dockerfile
     ports:
       - "5090:5090"
+      - "5080:5080"
     environment:
+      - Kestrel__EndPoints__Http__Url=http://+:5080
       - Kestrel__EndPoints__Https__Url=https://+:5090
       - Kestrel__EndPoints__Https__Certificate__Path=/tls/hello.pfx
       - Kestrel__EndPoints__Https__Certificate__Password=1234
       - HelloWorld__BaseUrl=http://hello-world:5080
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+      - OTEL_DOTNET_EXPERIMENTAL_ASPNETCORE_ENABLE_GRPC_INSTRUMENTATION=true
     volumes:
       - ./tls:/tls
     depends_on:
       - hello-world
+
+  jaeger:
+    image: jaegertracing/opentelemetry-all-in-one
+    ports:
+      - "16686:16686"

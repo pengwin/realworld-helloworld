@@ -16,10 +16,26 @@ spec:
     spec:
       containers:
       - name: hello-proto-world
-        image: real-hello-proto-world:0.0.1
+        image: real-hello-proto-world:0.0.3
         ports:
-        - containerPort: 5080
+        - containerPort: 5090
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5080
+          initialDelaySeconds: 10
+          periodSeconds: 15
+          failureThreshold: 5
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5080
+          initialDelaySeconds: 10
+          periodSeconds: 15
+          failureThreshold: 5
         env:
+        - name: Kestrel__EndPoints__Http__Url
+          value: "http://+:5080"
         - name: Kestrel__EndPoints__Https__Url
           value: "https://+:5090"
         - name: Kestrel__EndPoints__Https__Certificate__Path
@@ -28,6 +44,12 @@ spec:
           value: "1234"
         - name: HelloWorld__BaseUrl
           value: "http://hello-world-service.hello.svc.cluster.local:80"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://jaeger-collector.observability.svc.cluster.local:4317"
+        - name: OTEL_EXPORTER_OTLP_PROTOCOL
+          value: "grpc"
+        - name: OTEL_DOTNET_EXPERIMENTAL_ASPNETCORE_ENABLE_GRPC_INSTRUMENTATION
+          value: "true"
         volumeMounts:
         - name: tls
           mountPath: /tls

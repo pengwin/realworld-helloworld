@@ -101,15 +101,15 @@ docker run --rm -it -p 5080:5080 -e ASPNETCORE_URLS=http://::5080 real-world-hel
 
 Нагрузим наше приложение
 
-| Metric | Value |
-| --- | --- |
-|RPS| 24617.915489/s |
-|Avg| 18.1ms |
-|Max| 123.4ms |
-|Min| 429.67µs |
-|Med| 15.41ms |
-|95%| 42.17ms  |
-|90%| 25.61ms |
+| Metric | Iteration -1 | Iteration 0 |
+| --- | --- | --- |
+|RPS| 28983.928756/s | 24617.915489/s |
+|Avg| 15ms | 18.1ms |
+|Max| 135.4ms | 123.4ms |
+|Min| 126.9µs | 429.67µs |
+|Med| 9.32ms | 15.41ms |
+|95%| 47.88ms | 42.17ms  |
+|90%| 35.53ms | 25.61ms |
 
 # Iteration 1
 
@@ -200,17 +200,17 @@ docker compose -f ./iac/docker-compose.yaml up
 
 Нагрузим наше приложение
 
-| Metric | Value |
-| --- | --- |
-|RPS| 19692.118609/s |
-|Avg| 22.61ms |
-|Max| 112.71ms |
-|Min| 4.49ms |
-|Med| 20.68ms |
-|95%| 35.66ms  |
-|90%| 32.32ms |
-|Data received| 1.8 MB |
-|Data sent| 960 kB |
+| Metric | Iteration -1 | Iteration 0 | Iteration 1 | 
+| --- | --- | --- | --- |
+|RPS| 28983.928756/s | 24617.915489/s | 19692.118609/s |
+|Avg| 15ms | 18.1ms | 22.61ms |
+|Max| 135.4ms | 123.4ms | 112.71ms |
+|Min| 126.9µs | 429.67µs | 4.49ms |
+|Med| 9.32ms | 15.41ms | 20.68ms |
+|95%| 47.88ms | 42.17ms  | 35.66ms  |
+|90%| 35.53ms | 25.61ms | 32.32ms |
+|Data received| | | 1.8 MB |
+|Data sent| | | 960 kB |
 
 # Iteration 2
 
@@ -362,17 +362,17 @@ export default function () {
 
 Нагрузим наше приложение
 
-| Metric | Value |
-| --- | --- |
-|RPS| 9511.721711/s |
-|Avg| 29.04ms |
-|Max| 227.83ms |
-|Min| 4.77ms |
-|Med| 25.79ms |
-|95%| 55.35ms   |
-|90%| 42.37ms |
-|Data received| 2.5 MB |
-|Data sent| 1.3 MB |
+| Metric | Iteration -1 | Iteration 0 | Iteration 1 | Iteration 2 |
+| --- | --- | --- | --- | --- |
+|RPS| 28983.928756/s | 24617.915489/s | 19692.118609/s | 9511.721711/s |
+|Avg| 15ms | 18.1ms | 22.61ms | 29.04ms |
+|Max| 135.4ms | 123.4ms | 112.71ms | 227.83ms |
+|Min| 126.9µs | 429.67µs | 4.49ms | 4.77ms |
+|Med| 9.32ms | 15.41ms | 20.68ms | 25.79ms |
+|95%| 47.88ms | 42.17ms  | 35.66ms  | 55.35ms   |
+|90%| 35.53ms | 25.61ms | 32.32ms | 42.37ms |
+|Data received| | | 1.8 MB | 2.5 MB |
+|Data sent| | | 960 kB | 1.3 MB |
 
 Видно, что сэкономить не получилось, даже наоборот, но наверное если бы отправляли массив чисел с плавающей точкой, то разница была бы заметней.
 
@@ -624,15 +624,17 @@ kubectl apply -f ./iac/k8s/ingress.yaml -n hello
 echo "$(minikube ip) hello" | sudo tee -a /etc/hosts
 ```
 
-| Metric | Value |
-| --- | --- |
-|RPS| 9518.067672/s |
-|Avg| 29.88ms |
-|Max| 288.3ms |
-|Min| 7.17ms |
-|Med| 25.62ms |
-|95%| 56.57ms   |
-|90%| 44.77ms |
+| Metric | Iteration -1 | Iteration 0 | Iteration 1 | Iteration 2 | Iteration 3 |
+| --- | --- | --- | --- | --- | --- |
+|RPS| 28983.928756/s | 24617.915489/s | 19692.118609/s | 9511.721711/s | 9518.067672/s |
+|Avg| 15ms | 18.1ms | 22.61ms | 29.04ms | 29.88ms |
+|Max| 135.4ms | 123.4ms | 112.71ms | 227.83ms | 288.3ms |
+|Min| 126.9µs | 429.67µs | 4.49ms | 4.77ms | 7.17ms |
+|Med| 9.32ms | 15.41ms | 20.68ms | 25.79ms | 25.62ms |
+|95%| 47.88ms | 42.17ms  | 35.66ms  | 55.35ms   | 56.57ms   |
+|90%| 35.53ms | 25.61ms | 32.32ms | 42.37ms | 44.77ms |
+|Data received| | | 1.8 MB | 2.5 MB | |
+|Data sent| | | 960 kB | 1.3 MB | |
 
 # Iteration 4
 
@@ -758,15 +760,17 @@ readinessProbe:
 
 Измерим как логирование и хелсчеки повлияли на производительность
 
-| Metric | Value |
-| --- | --- |
-|RPS| 6086.363055/s |
-|Avg| 56.63ms |
-|Max| 794.49ms |
-|Min| 6.69ms |
-|Med| 47.94ms |
-|95%| 99.64ms   |
-|90%| 83.81ms |
+| Metric | Iteration -1 | Iteration 0 | Iteration 1 | Iteration 2 | Iteration 3 | Iteration 4/1 |
+| --- | --- | --- | --- | --- | --- | --- |
+|RPS| 28983.928756/s | 24617.915489/s | 19692.118609/s | 9511.721711/s | 9518.067672/s | 6086.363055/s |
+|Avg| 15ms | 18.1ms | 22.61ms | 29.04ms | 29.88ms | 56.63ms |
+|Max| 135.4ms | 123.4ms | 112.71ms | 227.83ms | 288.3ms | 794.49ms |
+|Min| 126.9µs | 429.67µs | 4.49ms | 4.77ms | 7.17ms | 6.69ms |
+|Med| 9.32ms | 15.41ms | 20.68ms | 25.79ms | 25.62ms | 47.94ms |
+|95%| 47.88ms | 42.17ms  | 35.66ms  | 55.35ms   | 56.57ms   | 99.64ms   |
+|90%| 35.53ms | 25.61ms | 32.32ms | 42.37ms | 44.77ms | 83.81ms |
+|Data received| | | 1.8 MB | 2.5 MB | | |
+|Data sent| | | 960 kB | 1.3 MB | | |
 
 Добавим трейсинг, для этого я буду использовать [OpenTelemetry](https://opentelemetry.io/)
 
@@ -822,15 +826,17 @@ helm install jaeger jaegertracing/jaeger --values ./iac/k8s/jaeger/jaeger-values
 
 Измерим производительность после добавления трейсинга
 
-| Metric | Value |
-| --- | --- |
-|RPS| 4910.652244/s |
-|Avg| 72.24ms |
-|Max| 637.73ms |
-|Min| 4.12ms |
-|Med| 63.15ms |
-|95%| 129.43ms   |
-|90%| 110.62ms |
+| Metric | Iteration -1 | Iteration 0 | Iteration 1 | Iteration 2 | Iteration 3 | Iteration 4/1 | Iteration 4/2 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+|RPS| 28983.928756/s | 24617.915489/s | 19692.118609/s | 9511.721711/s | 9518.067672/s | 6086.363055/s | 4910.652244/s |
+|Avg| 15ms | 18.1ms | 22.61ms | 29.04ms | 29.88ms | 56.63ms | 72.24ms |
+|Max| 135.4ms | 123.4ms | 112.71ms | 227.83ms | 288.3ms | 794.49ms | 637.73ms |
+|Min| 126.9µs | 429.67µs | 4.49ms | 4.77ms | 7.17ms | 6.69ms | 4.12ms |
+|Med| 9.32ms | 15.41ms | 20.68ms | 25.79ms | 25.62ms | 47.94ms | 63.15ms |
+|95%| 47.88ms | 42.17ms  | 35.66ms  | 55.35ms   | 56.57ms   | 99.64ms   | 129.43ms   |
+|90%| 35.53ms | 25.61ms | 32.32ms | 42.37ms | 44.77ms | 83.81ms | 110.62ms |
+|Data received| | | 1.8 MB | 2.5 MB | | | |
+|Data sent| | | 960 kB | 1.3 MB | | | |
 
 Для смеха можно добавить Jaeger в нашу архитектурную диаграмму
 

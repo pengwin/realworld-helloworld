@@ -294,6 +294,7 @@ class GrpcService : HelloService.HelloServiceBase
         };
     }
 }
+```
 
 Теперь нам надо сгенерировать сертификаты для HTTP/2, чтобы наш gRPC работал. Для этого нам надо сгенерировать сертификаты и добавить их в контейнер.
 Скрипт для генерации сертификата возьмем у [Microsoft](https://learn.microsoft.com/en-us/dotnet/core/additional-tools/self-signed-certificates-guide#with-openssl).
@@ -817,7 +818,7 @@ builder.Services.AddOpenTelemetry()
 ```shell
 kubectl create namespace observability
 helm repo add jaegertracing https://jaegertracing.github.io/helm-charts
-helm install jaeger jaegertracing/jaeger --values ./iac/k8s/jaeger/jaeger-values.yaml -n observability
+helm install jaeger jaegertracing/jaeger --values ./iac/k8s/helm-values/jaeger/values.yaml -n observability
 ```
 
 И мы сможем увидеть трейсы в jaeger
@@ -841,6 +842,403 @@ helm install jaeger jaegertracing/jaeger --values ./iac/k8s/jaeger/jaeger-values
 Для смеха можно добавить Jaeger в нашу архитектурную диаграмму
 
 ![Architecture](./diagrams/output/iteration4.png)
+
+# Iteration 5
+
+Деплоить сервисы через kubectl это прошлый век, нужно создать helmchart для наших сервисов.
+
+```shell
+helm create microservice
+```
+
+Вынесем общие части инфраструктуры сервисов в новый  [helm chart](/iac/helm-charts/microservice).
+
+Добавим  values.yaml для hello-world
+
+```yaml
+replicaCount: 3
+
+image:
+  repository: real-hello-world
+  tag: "0.0.3"
+
+nameOverride: "hello-world"
+fullnameOverride: "hello-world"
+
+securityContext:
+  runAsNonRoot: false
+
+pod:
+  ports:
+    httpPort: 5080
+
+env:
+- name: ASPNETCORE_URLS
+  value: "http://+:5080"
+- name: OTEL_EXPORTER_OTLP_ENDPOINT
+  value: "http://jaeger-collector.observability.svc.cluster.local:4317"
+- name: OTEL_EXPORTER_OTLP_PROTOCOL
+  value: "grpc"
+```
+и для hello-proto-world
+
+```yaml
+replicaCount: 3
+
+image:
+  repository: real-hello-proto-world
+  tag: "0.0.3"
+
+nameOverride: "hello-proto-world"
+fullnameOverride: "hello-proto-world"
+
+securityContext:
+  runAsNonRoot: false
+
+pod:
+  ports:
+    httpPort: 5080
+    grpcPort: 5090
+
+service:
+  type: ClusterIP
+  port: 443
+
+ingress:
+  enabled: true
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPCS"
+  hosts:
+    - host: hello
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+  - secretName: hello-ingress-tls
+    hosts:
+      - hello
+
+volumeMounts:
+- name: tls
+  mountPath: /tls
+  readOnly: true
+
+volumes:
+- name: tls
+  secret:
+    secretName: hello-tls
+
+env:
+- name: Kestrel__EndPoints__Http__Url
+  value: "http://+:5080"
+- name: Kestrel__EndPoints__Https__Url
+  value: "https://+:5090"
+- name: Kestrel__EndPoints__Https__Certificate__Path
+  value: "/tls/hello.pfx"
+- name: Kestrel__EndPoints__Https__Certificate__Password
+  value: "1234"
+- name: HelloWorld__BaseUrl
+  value: "http://hello-world.hello.svc.cluster.local:80"
+- name: OTEL_EXPORTER_OTLP_ENDPOINT
+  value: "http://jaeger-collector.observability.svc.cluster.local:4317"
+- name: OTEL_EXPORTER_OTLP_PROTOCOL
+  value: "grpc"
+- name: OTEL_DOTNET_EXPERIMENTAL_ASPNETCORE_ENABLE_GRPC_INSTRUMENTATION
+  value: "true"
+```
+
+Установим наши сервисы
+
+```shell
+helm install --debug --atomic --namespace hello -f ./iac/k8s/helm-values/hello-world/values.yaml hello-world ./iac/helm-charts/microservice
+helm install --debug --atomic --namespace hello -f ./iac/k8s/helm-values/hello-proto-world/values.yaml hello-proto-world ./iac/helm-charts/microservice
+```
+
+Это сильно упростило деплоймент сервисов, но мы можем сделать создание инфраструктуры еще более простым с помощью terraform.
+
+Для начала давайте сгенерируем сертификат с помощью terraform. Создадим terraform модуль cert для генерации сертификата.
+ 
+```hcl
+#main tf
+resource "tls_private_key" "cert_private_key" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+resource "tls_self_signed_cert" "cert" {
+  private_key_pem       = tls_private_key.cert_private_key.private_key_pem
+  validity_period_hours = var.cert_validity_period_hours
+  allowed_uses = [
+    "key_encipherment",
+    "digital_signature",
+    "server_auth",
+  ]
+  dns_names          = var.cert_dns_names
+  is_ca_certificate  = true
+  set_subject_key_id = true
+
+  subject {
+    common_name = var.cert_common_name
+  }
+}
+```
+Затем модуль, который положит сертификат в k8s secret
+
+```hcl
+#main tf
+module "cert" {
+  source = "./modules/cert"
+
+  cert_common_name           = var.cert_common_name
+  cert_dns_names             = var.cert_dns_names
+  cert_organization          = var.cert_organization
+  cert_validity_period_hours = 24 * 365
+}
+
+resource "kubernetes_secret" "tls-cert" {
+  metadata {
+    name      = var.tls_secret_name
+    namespace = var.namespace
+    labels = {
+      "app.kubernetes.io/managed-by" = "Terraform"
+    }
+  }
+
+  data = {
+    "tls.crt" = module.cert.certificate
+    "tls.key" = module.cert.private_key
+  }
+
+  type = "kubernetes.io/tls"
+}
+```
+Теперь создадим модуль, который установит helm chart для hello-world
+
+```hcl
+locals {
+  port = 5080
+}
+
+resource "helm_release" "hello-proto-world-service" {
+  name  = var.name
+  chart = "${path.module}/../../../../helm-charts/microservice"
+
+  namespace = var.namespace
+
+  atomic = true
+
+  timeout = 600
+
+  values = [yamlencode({
+    replicaCount = 3
+    image = {
+      repository = var.image
+      tag        = var.image_tag
+    }
+
+    nameOverride     = var.name
+    fullnameOverride = var.name
+
+    securityContext = {
+      runAsNonRoot = false
+    }
+
+    pod = {
+      ports = {
+        httpPort = local.port
+      }
+    }
+
+    env = [{
+      name  = "ASPNETCORE_URLS"
+      value = "http://+:${local.port}"
+      }, {
+      name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
+      value = var.jaeger_collector_endpoint
+      }, {
+      name  = "OTEL_EXPORTER_OTLP_PROTOCOL"
+      value = "grpc"
+    }]
+  })]
+}
+```
+
+И для hello-proto-world
+
+```hcl
+locals {
+  port      = 5080
+  grpc_port = 5090
+}
+
+resource "helm_release" "hello-world-service" {
+  name  = var.name
+  chart = "${path.module}/../../../../helm-charts/microservice"
+
+  namespace = var.namespace
+
+  atomic = true
+
+  timeout = 600
+
+  values = [yamlencode({
+    replicaCount = 3
+    image = {
+      repository = var.image
+      tag        = var.image_tag
+    }
+
+    nameOverride     = var.name
+    fullnameOverride = var.name
+
+    securityContext = {
+      runAsNonRoot = false
+    }
+
+    pod = {
+      ports = {
+        httpPort = local.port
+        grpcPort = local.grpc_port
+      }
+    }
+
+    service = {
+      type = "ClusterIP"
+      port = 443
+    }
+
+    ingress = {
+      enabled = true
+      annotations = {
+        "nginx.ingress.kubernetes.io/ssl-redirect"     = "true"
+        "nginx.ingress.kubernetes.io/backend-protocol" = "GRPCS"
+      }
+      hosts = [{
+        host = var.ingress_domain
+        paths = [{
+          path     = "/"
+          pathType = "Prefix"
+        }]
+      }]
+      tls = [{
+        secretName = var.tls_secret_name
+        hosts      = [var.ingress_domain]
+      }]
+    }
+
+    volumes = [{
+      name = "tls"
+      secret = {
+        secretName = var.tls_secret_name
+      }
+    }]
+
+    volumeMounts = [{
+      name      = "tls"
+      mountPath = "/tls"
+      readOnly  = true
+    }]
+
+    env = [{
+      name  = "Kestrel__EndPoints__Http__Url"
+      value = "http://+:${local.port}"
+      }, {
+      name  = "Kestrel__EndPoints__Https__Url"
+      value = "https://+:${local.grpc_port}"
+      }, {
+      name  = "Kestrel__EndPoints__Https__Certificate__Path"
+      value = "/tls/tls.crt"
+      }, {
+      name  = "Kestrel__EndPoints__Https__Certificate__KeyPath"
+      value = "/tls/tls.key"
+      }, /*{
+      name  = "Kestrel__EndPoints__Https__Certificate__Password"
+      value = var.tls_cert_password
+      },*/ {
+      name  = "HelloWorld__BaseUrl"
+      value = "http://${var.hello_world_name}.${var.namespace}.svc.cluster.local:80"
+      }, {
+      name  = "OTEL_EXPORTER_OTLP_ENDPOINT"
+      value = var.jaeger_collector_endpoint
+      }, {
+      name  = "OTEL_EXPORTER_OTLP_PROTOCOL"
+      value = "grpc"
+      }, {
+      name  = "OTEL_DOTNET_EXPERIMENTAL_ASPNETCORE_ENABLE_GRPC_INSTRUMENTATION"
+      value = "true"
+    }]
+  })]
+}
+```
+
+Теперь давайте свяжем все модули вместе
+
+```hcl
+locals {
+  namespace     = "hello"
+  domain_name   = "hello.local"
+  cert_password = "password"
+
+  tls_secret_name = "hello-tls"
+
+  hello_world_name          = "hello-world"
+  hello_proto_world_name    = "hello-proto-world"
+  observability_namespace   = "observability"
+  jaeger_collector_service  = "jaeger-collector"
+  jaeger_collector_port     = 4317
+  jaeger_collector_endpoint = "http://${local.jaeger_collector_service}.${local.observability_namespace}.svc.cluster.local:${local.jaeger_collector_port}"
+}
+
+resource "kubernetes_namespace" "hello-namespace" {
+  metadata {
+    name = local.namespace
+  }
+}
+
+module "tls_secret" {
+  source = "./modules/tls_secret"
+
+  namespace         = local.namespace
+  cert_common_name  = local.domain_name
+  cert_dns_names    = [local.domain_name]
+  cert_organization = "Hello-world Ltd."
+  pfx_password      = local.cert_password
+
+  tls_secret_name = local.tls_secret_name
+
+  depends_on = [kubernetes_namespace.hello-namespace]
+}
+
+module "hello_world" {
+  source = "./modules/hello-world-service"
+
+  namespace                 = local.namespace
+  image                     = "real-hello-world"
+  image_tag                 = "0.0.3"
+  name                      = local.hello_world_name
+  jaeger_collector_endpoint = local.jaeger_collector_endpoint
+}
+
+module "hello_proto_world" {
+  source = "./modules/hello-proto-world-service"
+
+  namespace                 = local.namespace
+  image                     = "real-hello-proto-world"
+  image_tag                 = "0.0.3"
+  name                      = local.hello_proto_world_name
+  jaeger_collector_endpoint = local.jaeger_collector_endpoint
+  tls_secret_name           = local.tls_secret_name
+  tls_cert_password         = local.cert_password
+  hello_world_name          = local.hello_world_name
+  ingress_domain            = local.domain_name
+
+  depends_on = [module.tls_secret]
+}
+```
+
+terragrunt init --terragrunt-config ./iac/terragrunt/local/minikube/hello-world/terragrunt.hcl 
+
 
 
 

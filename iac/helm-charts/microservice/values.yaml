@@ -1,0 +1,79 @@
+# Default values for microservice.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  repository: hello-world
+  tag: ""
+
+nameOverride: ""
+fullnameOverride: ""
+
+podAnnotations: {}
+podLabels: {}
+
+securityContext:
+  runAsNonRoot: true
+
+pod:
+  ports:
+    httpPort: 5080
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+    #nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    #nginx.ingress.kubernetes.io/backend-protocol: "GRPCS"
+  hosts:
+    - host: chart-example.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+  #  - secretName: chart-example-tls
+  #    hosts:
+  #      - chart-example.local
+
+resources: {}
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+probes:
+  liveness:
+    path: /health
+    port: http
+    initialDelaySeconds: 3
+    periodSeconds: 15
+    failureThreshold: 5
+  readiness:
+    path: /health
+    port: http
+    initialDelaySeconds: 3
+    periodSeconds: 15
+    failureThreshold: 5
+
+# Additional volumes on the output Deployment definition.
+volumes: []
+#- name: tls
+#  secret:
+#  secretName: hello-tls
+
+
+# Additional volumeMounts on the output Deployment definition.
+volumeMounts: []
+#- name: tls
+#  mountPath: /tls
+#  readOnly: true
+
+env: []

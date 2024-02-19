@@ -1,0 +1,63 @@
+replicaCount: 3
+
+image:
+  repository: real-hello-proto-world
+  tag: "0.0.3"
+
+nameOverride: "hello-proto-world"
+fullnameOverride: "hello-proto-world"
+
+securityContext:
+  runAsNonRoot: false
+
+pod:
+  ports:
+    httpPort: 5080
+    grpcPort: 5090
+
+service:
+  type: ClusterIP
+  port: 443
+
+ingress:
+  enabled: true
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPCS"
+  hosts:
+    - host: hello
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+  - secretName: hello-ingress-tls
+    hosts:
+      - hello
+
+volumeMounts:
+- name: tls
+  mountPath: /tls
+  readOnly: true
+
+volumes:
+- name: tls
+  secret:
+    secretName: hello-tls
+
+env:
+- name: Kestrel__EndPoints__Http__Url
+  value: "http://+:5080"
+- name: Kestrel__EndPoints__Https__Url
+  value: "https://+:5090"
+- name: Kestrel__EndPoints__Https__Certificate__Path
+  value: "/tls/hello.pfx"
+- name: Kestrel__EndPoints__Https__Certificate__Password
+  value: "1234"
+- name: HelloWorld__BaseUrl
+  value: "http://hello-world.hello.svc.cluster.local:80"
+- name: OTEL_EXPORTER_OTLP_ENDPOINT
+  value: "http://jaeger-collector.observability.svc.cluster.local:4317"
+- name: OTEL_EXPORTER_OTLP_PROTOCOL
+  value: "grpc"
+- name: OTEL_DOTNET_EXPERIMENTAL_ASPNETCORE_ENABLE_GRPC_INSTRUMENTATION
+  value: "true"

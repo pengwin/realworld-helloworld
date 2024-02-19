@@ -1,0 +1,23 @@
+replicaCount: 3
+
+image:
+  repository: real-hello-world
+  tag: "0.0.3"
+
+nameOverride: "hello-world"
+fullnameOverride: "hello-world"
+
+securityContext:
+  runAsNonRoot: false
+
+pod:
+  ports:
+    httpPort: 5080
+
+env:
+- name: ASPNETCORE_URLS
+  value: "http://+:5080"
+- name: OTEL_EXPORTER_OTLP_ENDPOINT
+  value: "http://jaeger-collector.observability.svc.cluster.local:4317"
+- name: OTEL_EXPORTER_OTLP_PROTOCOL
+  value: "grpc"

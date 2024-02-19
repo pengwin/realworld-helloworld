@@ -14,7 +14,7 @@ client.load(['definitions'], '../../src/HelloProtoWorld/hello.proto');
 export default function () {
   // connect once to reuse connection
   if (exec.vu.iterationInScenario == 0) {
-    client.connect('hello:443', {});
+    client.connect('hello.local:443', {});
   }
 
   const response = client.invoke('HelloService/SayHello', {});
